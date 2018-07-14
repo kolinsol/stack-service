@@ -6,7 +6,7 @@ defmodule Stack.Server do
   @vsn "1"
 
   defmodule State do
-    defstruct content: [], size: 0, stash_pid: nil
+    defstruct content: [], size: 0, history: [], stash_pid: nil
   end
 
   def start_link(stash_pid) do
@@ -14,12 +14,17 @@ defmodule Stack.Server do
   end
 
   def init(stash_pid) do
-    state = Stack.Stash.get_value stash_pid
-    {:ok, %State{content: state, size: length(state), stash_pid: stash_pid}}
+    {content, history} = Stack.Stash.get_value stash_pid
+    {:ok, %State{
+      content: content,
+      size: length(content),
+      history: history,
+      stash_pid: stash_pid
+    }}
   end
 
   def terminate(_reason, state) do
-    Stack.Stash.save_value state.stash_pid, state.content
+    Stack.Stash.save_value state.stash_pid, {state.content, state.history}
   end
 
   def content do
@@ -28,6 +33,10 @@ defmodule Stack.Server do
 
   def size do
     GenServer.call(__MODULE__, :size)
+  end
+
+  def history do
+    GenServer.call(__MODULE__, :history)
   end
 
   def pop do
@@ -43,7 +52,11 @@ defmodule Stack.Server do
   end
 
   def handle_call(:pop, _from, %State{content: [h|t]} = state) do
-    {:reply, h, %{state | content: t, size: state.size - 1}}
+    {:reply, h, %{state |
+      content: t,
+      history: [{:pop, h}|state.history],
+      size: state.size - 1
+    }}
   end
 
   def handle_call(:content, _from, state) do
@@ -54,12 +67,20 @@ defmodule Stack.Server do
     {:reply, state.size, state}
   end
 
+  def handle_call(:history, _form, state) do
+    {:reply, state.history, state}
+  end
+
   def handle_call(:die, _from, _state) do
     exit(:boom)
   end
 
   def handle_cast({:push, val}, state) do
-    {:noreply, %{state | content: [val|state.content], size: state.size + 1}}
+    {:noreply, %{state |
+      content: [val|state.content],
+      history: [{:push, val}|state.history],
+      size: state.size + 1
+    }}
   end
 
   def code_change("0", old_state = {curent_state, stash_pid}, _extra) do

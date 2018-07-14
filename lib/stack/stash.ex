@@ -21,7 +21,7 @@ defmodule Stack.Stash do
     {:reply, current_value, current_value}
   end
 
-  def handle_call(:die, _from, state) do
+  def handle_call(:die, _from, _state) do
     exit(:boom)
   end
 
