@@ -1,23 +1,33 @@
 defmodule Stack.Server do
   use GenServer
 
-  @vsn "0"
+  require Logger
+
+  @vsn "1"
+
+  defmodule State do
+    defstruct content: [], size: 0, stash_pid: nil
+  end
 
   def start_link(stash_pid) do
     GenServer.start_link(__MODULE__, stash_pid, name: __MODULE__)
   end
 
   def init(stash_pid) do
-    current_state = Stack.Stash.get_value stash_pid
-    {:ok, {current_state, stash_pid}}
+    state = Stack.Stash.get_value stash_pid
+    {:ok, %State{content: state, size: length(state), stash_pid: stash_pid}}
   end
 
-  def terminate(_reason, {current_state, stash_pid}) do
-    Stack.Stash.save_value stash_pid, current_state
+  def terminate(_reason, state) do
+    Stack.Stash.save_value state.stash_pid, state.content
   end
 
-  def state do
-    GenServer.call(__MODULE__, :state)
+  def content do
+    GenServer.call(__MODULE__, :content)
+  end
+
+  def size do
+    GenServer.call(__MODULE__, :size)
   end
 
   def pop do
@@ -32,17 +42,35 @@ defmodule Stack.Server do
     GenServer.call(__MODULE__, :die)
   end
 
-  def handle_call(:pop, _from, {[h|t], stash_pid}) do
-    {:reply, h, {t, stash_pid}}
+  def handle_call(:pop, _from, %State{content: [h|t]} = state) do
+    {:reply, h, %{state | content: t, size: state.size - 1}}
   end
-  def handle_call(:state, _from, {state, stash_pid}) do
-    {:reply, state, {state, stash_pid}}
+
+  def handle_call(:content, _from, state) do
+    {:reply, state.content, state}
   end
-  def handle_call(:die, _from, {_,_}) do
+
+  def handle_call(:size, _from, state) do
+    {:reply, state.size, state}
+  end
+
+  def handle_call(:die, _from, _state) do
     exit(:boom)
   end
 
-  def handle_cast({:push, val}, {state, stash_pid}) do
-    {:noreply, {[val|state], stash_pid}}
+  def handle_cast({:push, val}, state) do
+    {:noreply, %{state | content: [val|state.content], size: state.size + 1}}
+  end
+
+  def code_change("0", old_state = {curent_state, stash_pid}, _extra) do
+    new_state = %State{
+      content: curent_state,
+      stash_pid: stash_pid,
+      size: length(curent_state)
+    }
+    Logger.info "trandsorming state"
+    Logger.info inspect(old_state)
+    Logger.info inspect(new_state)
+    {:ok, new_state}
   end
 end
